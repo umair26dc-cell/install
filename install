@@ -1,0 +1,139 @@
+#!/bin/bash
+# .install file - Self-installing PWA installer
+# Run with: install install
+
+APP_NAME="MyApp"
+INSTALL_DIR="$HOME/.local/share/apps/$APP_NAME"
+BIN_DIR="$HOME/.local/bin"
+
+# Create directories
+mkdir -p "$INSTALL_DIR"
+mkdir -p "$BIN_DIR"
+
+# Create the HTML app with embedded CSS/JS
+cat > "$INSTALL_DIR/index.html" << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyApp</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4a90d9">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+        .container { text-align: center; padding: 2rem; }
+        h1 { font-size: 3rem; margin-bottom: 1rem; }
+        p { font-size: 1.2rem; opacity: 0.9; }
+        .logo { width: 128px; height: 128px; margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="favicon.svg" alt="Logo" class="logo">
+        <h1>MyApp</h1>
+        <p>Welcome to your installed app!</p>
+    </div>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
+    </script>
+</body>
+</html>
+HTMLEOF
+
+# Create favicon (SVG)
+cat > "$INSTALL_DIR/favicon.svg" << 'FAVICON_EOF'
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="20" fill="url(#grad)"/>
+  <text x="50" y="65" font-size="50" text-anchor="middle" fill="white" font-weight="bold">A</text>
+</svg>
+FAVICON_EOF
+
+# Create manifest.json for PWA
+cat > "$INSTALL_DIR/manifest.json" << 'MANIFEST_EOF'
+{
+    "name": "MyApp",
+    "short_name": "MyApp",
+    "start_url": "/index.html",
+    "display": "standalone",
+    "background_color": "#667eea",
+    "theme_color": "#4a90d9",
+    "icons": [{
+        "src": "favicon.svg",
+        "sizes": "any",
+        "type": "image/svg+xml"
+    }]
+}
+MANIFEST_EOF
+
+# Create service worker
+cat > "$INSTALL_DIR/sw.js" << 'SW_EOF'
+self.addEventListener('install', (e) => {
+    e.waitUntil(
+        caches.open('myapp-v1').then((cache) => {
+            return cache.addAll(['./', './index.html', './favicon.svg', './manifest.json']);
+        })
+    );
+});
+self.addEventListener('fetch', (e) => {
+    e.respondWith(
+        caches.match(e.request).then((response) => response || fetch(e.request))
+    );
+});
+SW_EOF
+
+# Create launcher script
+cat > "$BIN_DIR/myapp" << 'LAUNCHER_EOF'
+#!/bin/bash
+INSTALL_DIR="$HOME/.local/share/apps/MyApp"
+if command -v python3 &> /dev/null; then
+    python3 -m http.server 8080 --directory "$INSTALL_DIR" &
+    LAUNCHER_PID=$!
+    echo "App running at http://localhost:8080"
+    echo "Open in browser and click 'Install' to add as PWA"
+    trap "kill $LAUNCHER_PID 2>/dev/null" EXIT INT TERM
+    sleep 2
+    if command -v xdg-open &> /dev/null; then
+        xdg-open "http://localhost:8080"
+    elif command -v open &> /dev/null; then
+        open "http://localhost:8080"
+    else
+        echo "Please open http://localhost:8080 in your browser"
+    fi
+    wait
+else
+    echo "Python3 required. Please install Python3."
+    exit 1
+fi
+LAUNCHER_EOF
+
+chmod +x "$BIN_DIR/myapp"
+
+# Add to PATH if not already there
+if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+    export PATH="$BIN_DIR:$PATH"
+fi
+
+echo "✅ MyApp installed successfully!"
+echo "📍 Location: $INSTALL_DIR"
+echo "🚀 Run 'myapp' to launch the application"
+echo "💡 The app can be installed as a PWA from your browser"
